@@ -97,8 +97,10 @@ class RepresentationUNet(nn.Module):
         self.flat = nn.Flatten()
         x_size, y_size = patch_size
         fc_input_size = int(x_size // 2 * y_size // 2)
-        self.fc1 = nn.Linear(fc_input_size, representation_len // 2)
-        self.fc2 = nn.Linear(representation_len // 2, representation_len)
+        self.fc1 = nn.Linear(fc_input_size, representation_len // 4)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(representation_len // 4, representation_len // 2)
+        self.fc3 = nn.Linear(representation_len // 2, representation_len)
 
         self._patch_coords = None
 
@@ -110,7 +112,10 @@ class RepresentationUNet(nn.Module):
         x5 = torch.sum(x4, dim=1, keepdim=True)
         x6 = self.flat(x5)
         x7 = self.fc1(x6)
-        output = self.fc2(x7)
+        x8 = self.relu(x7)
+        x9 = self.fc2(x8)
+        x10 = self.relu(x9)
+        output = self.fc3(x10)
         return output
 
     def set_patch_coordinates(self, patch_coordinates):

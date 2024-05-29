@@ -24,7 +24,7 @@ data_base_dir = os.path.join("Data", "images")
 
 # Model params
 patch_size = (40, 40)
-unet_output_classes = 200
+unet_output_classes = 1024
 
 img_transform = transforms.Compose([
     transforms.PILToTensor(),

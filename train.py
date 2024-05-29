@@ -26,7 +26,7 @@ test_img_ratio = 0.2
 
 # Model params
 patch_size = (40, 40)
-unet_output_classes = 200
+unet_output_classes = 1024
 
 # Training params
 learning_rate = 0.001
@@ -191,6 +191,8 @@ def test():
 
 
 if __name__ == "__main__":
+    torch.cuda.empty_cache()
+
     train_losses = train(50)
     print(test())
 
