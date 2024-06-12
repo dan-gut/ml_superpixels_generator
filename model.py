@@ -93,6 +93,7 @@ class RepresentationUNet(nn.Module):
         super(RepresentationUNet, self).__init__()
         self.unet = UNet(unet_out_dimensions)
         self.softmax = nn.Softmax()
+        self.sigmoid = nn.Sigmoid()
         self.av_pool = nn.AvgPool2d(2, stride=2)
         self.flat = nn.Flatten()
         x_size, y_size = patch_size
@@ -106,7 +107,8 @@ class RepresentationUNet(nn.Module):
 
     def forward(self, x):
         x1 = self.unet(x)
-        x2 = self.softmax(x1)
+        # x2 = self.softmax(x1)
+        x2 = self.sigmoid(x1)
         x3 = self._crop_patch(x2)
         x4 = self.av_pool(x3)
         x5 = torch.sum(x4, dim=1, keepdim=True)

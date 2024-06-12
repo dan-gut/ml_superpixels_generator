@@ -9,6 +9,7 @@ from PIL import Image
 import torch
 import torch.optim as optim
 from torch import nn
+from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 
 from model import RepresentationUNet
@@ -42,7 +43,6 @@ img_transform = transforms.Compose([
     transforms.PILToTensor(),
     transforms.ConvertImageDtype(torch.float)])
 
-
 class RepresentationLoss(nn.Module):
     def __init__(self, contrastive_rate=0.5):
         super(RepresentationLoss, self).__init__()
@@ -58,7 +58,9 @@ class RepresentationLoss(nn.Module):
 
         contrastiveness = torch.nn.functional.relu(target_dist - pred_dist)
 
-        return (1-self.contrastive_rate)*similarity + self.contrastive_rate*contrastiveness
+        total_loss = (1 - self.contrastive_rate) * similarity + self.contrastive_rate * contrastiveness
+
+        return {"Similarity": similarity, "Contrastiveness": contrastiveness, "Total Loss": total_loss}
 
     @staticmethod
     def get_dino_rep(input_image, patch_coords):
@@ -109,6 +111,8 @@ def dataset_loader(test_set=False, patches_no=2):
 
 
 def train(epoch_number):
+    writer = SummaryWriter()
+
     model = RepresentationUNet(unet_out_dimensions=unet_output_classes, patch_size=patch_size, representation_len=2048)
     optimizer = optim.RMSprop(model.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=momentum)
     model.to(device)
@@ -131,6 +135,8 @@ def train(epoch_number):
         torch.cuda.empty_cache()
         print(f"Epoch {epoch}")
         epoch_losses = []
+        epoch_sim_losses = []
+        epoch_con_losses = []
         for _ in range(images_per_epoch):
             image, patches_coords = next(train_loader)
 
@@ -150,13 +156,25 @@ def train(epoch_number):
 
             loss = loss_fun([output_0, output_1], [target_0, target_1])
 
-            loss.backward()
+            sim_loss = loss["Similarity"]
+            con_loss = loss["Contrastiveness"]
+            tot_loss = loss["Total Loss"]
+
+            tot_loss.backward()
             optimizer.step()
-            epoch_losses.append(loss.item())
+            epoch_losses.append(tot_loss.item())
+            epoch_sim_losses.append(sim_loss.item())
+            epoch_con_losses.append(con_loss.item())
 
         mean_loss = np.mean(epoch_losses)
         losses.append(mean_loss)
         print(mean_loss)
+
+        writer.add_scalars("Loss",
+                           {"Similarity": np.mean(epoch_sim_losses),
+                            "Contrastiveness": np.mean(epoch_con_losses),
+                            "Total Loss": mean_loss},
+                           global_step=curr_epoch)
         if (epoch + 1) % checkpoint_interval == 0:
             print("Saving model checkpoint")
             torch.save({'epoch': epoch,
@@ -171,6 +189,8 @@ def train(epoch_number):
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict()
                 }, model_path)
+
+    writer.close()
 
     return losses
 
