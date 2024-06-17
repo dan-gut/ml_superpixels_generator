@@ -36,7 +36,7 @@ weight_decay = 1e-4
 momentum = 0.9
 checkpoint_interval = 10
 images_per_epoch = 5
-contrastive_rate = 0.5
+contrastive_rate = 0.95
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -208,19 +208,22 @@ if __name__ == "__main__":
     train_losses = train(10)
 
     torch.cuda.empty_cache()
-    _ = evaluate_model("model/rep_net_v2.pt", "plots/eval_cr05_epoch10.png")
+    _ = evaluate_model("model/rep_net_v2.pt",
+                       f"plots/eval_cr{str(contrastive_rate).replace('.','')}_epoch10.png")
 
     torch.cuda.empty_cache()
     train_losses.extend(train(40))
 
     torch.cuda.empty_cache()
-    _ = evaluate_model("model/rep_net_v2.pt", "plots/eval_cr05_epoch50.png")
+    _ = evaluate_model("model/rep_net_v2.pt",
+                       f"plots/eval_cr{str(contrastive_rate).replace('.','')}_epoch50.png")
 
     torch.cuda.empty_cache()
     train_losses.extend(train(50))
 
     torch.cuda.empty_cache()
-    _ = evaluate_model("model/rep_net_v2.pt", "plots/val_cr05_epoch100.png")
+    _ = evaluate_model("model/rep_net_v2.pt",
+                       f"plots/eval_cr{str(contrastive_rate).replace('.','')}_epoch100.png")
 
     plt.clf()
     plt.plot(train_losses)

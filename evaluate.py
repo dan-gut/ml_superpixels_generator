@@ -112,9 +112,12 @@ def evaluate_model(model_path, plot_path=None):
 
     if plot_path is not None:
         plt.clf()
-        plt.plot(model2model, 'o', label="mod2mod")
-        plt.plot(model2dino, 'o', label="mod2dino")
-        plt.plot(dino2dino, 'o', label="dino2dino")
+        plt.plot(model2model, 'o', label="mod2mod", color="c")
+        plt.axhline(y=np.mean(model2model), color='c', linestyle='--')
+        plt.plot(model2dino, 'o', label="mod2dino", color="m")
+        plt.axhline(y=np.mean(model2dino), color='m', linestyle='--')
+        plt.plot(dino2dino, 'o', label="dino2dino", color="y")
+        plt.axhline(y=np.mean(dino2dino), color='y', linestyle='--')
         plt.legend()
         plt.grid()
         plt.savefig(plot_path)
