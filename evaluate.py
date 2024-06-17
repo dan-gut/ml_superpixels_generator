@@ -12,9 +12,14 @@ from torchvision import transforms
 from model import RepresentationUNet
 
 
-DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-DINO_RESNET50 = torch.hub.load('facebookresearch/dino:main', 'dino_resnet50')
+data_base_dir = os.path.join("Data", "images")
+
+dino_resnet50 = torch.hub.load('facebookresearch/dino:main', 'dino_resnet50')
+
+patch_size = (40, 40)
+unet_output_classes = 1024
 
 TEST_CASES_NO = 50
 
@@ -60,10 +65,10 @@ def get_dino_rep(patch):
     patch = patch.repeat(3, 1, 1)  # RGB channels are required
     patch = patch.unsqueeze(0)
 
-    rep_model = DINO_RESNET50.to(DEVICE)
+    rep_model = dino_resnet50.to(device)
     rep_model.eval()
 
-    patch = patch.to(DEVICE)
+    patch = patch.to(device)
     with torch.no_grad():
         rep = rep_model(patch)
 
@@ -74,17 +79,16 @@ def evaluate_model(model_path, plot_path=None):
     patch_gen = patches_generator(patches_no=2)
 
     model = RepresentationUNet(unet_out_dimensions=unet_output_classes, patch_size=patch_size, representation_len=2048)
-    model.to(DEVICE)
+    model.to(device)
 
-    checkpoint = torch.load(model_path, map_location=torch.device(DEVICE))
+    checkpoint = torch.load(model_path, map_location=torch.device(device))
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
 
     model2dino = []
     model2model = []
     dino2dino = []
-    for i in range(TEST_CASES_NO):
-        print(i)
+    for _ in range(TEST_CASES_NO):
         image, patches, patches_coords = next(patch_gen)
         patch_1, patch_2 = patches
         patch_1_coords, patch_2_coords = patches_coords
@@ -92,7 +96,7 @@ def evaluate_model(model_path, plot_path=None):
         dino_rep_1 = get_dino_rep(patch_1)
         dino_rep_2 = get_dino_rep(patch_2)
 
-        image = image.to(DEVICE)
+        image = image.to(device)
 
         model.set_patch_coordinates(patch_1_coords)
         model_rep_1 = model(image.unsqueeze(0))
@@ -107,6 +111,7 @@ def evaluate_model(model_path, plot_path=None):
         dino2dino.append(torch.linalg.norm(dino_rep_1 - dino_rep_2))
 
     if plot_path is not None:
+        plt.clf()
         plt.plot(model2model, 'o', label="mod2mod")
         plt.plot(model2dino, 'o', label="mod2dino")
         plt.plot(dino2dino, 'o', label="dino2dino")
@@ -120,12 +125,7 @@ def evaluate_model(model_path, plot_path=None):
 if __name__ == "__main__":
     random.seed(42)
 
-    data_base_dir = os.path.join("Data", "images")
-
-    patch_size = (40, 40)
-    unet_output_classes = 1024
-
-    model2model, model2dino, dino2dino = evaluate_model("model/rep_net_v2.pt", "model_v2_evaluation.png")
+    model2model, model2dino, dino2dino = evaluate_model("model/rep_net_v2.pt","model_v2_evaluation.png")
 
     print(f"Model to model mean: {np.mean(model2model)}\n"
           f"Model to dino mean: {np.mean(model2dino)}\n"

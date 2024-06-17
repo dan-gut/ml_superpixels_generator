@@ -208,14 +208,21 @@ if __name__ == "__main__":
     train_losses = train(10)
 
     torch.cuda.empty_cache()
-    _ = evaluate_model("model/rep_net_v2.pt", "eval_cr05_epoch10.png")
+    _ = evaluate_model("model/rep_net_v2.pt", "plots/eval_cr05_epoch10.png")
 
     torch.cuda.empty_cache()
     train_losses.extend(train(40))
 
     torch.cuda.empty_cache()
-    _ = evaluate_model("model/rep_net_v2.pt", "eval_cr05_epoch50.png")
+    _ = evaluate_model("model/rep_net_v2.pt", "plots/eval_cr05_epoch50.png")
 
+    torch.cuda.empty_cache()
+    train_losses.extend(train(50))
+
+    torch.cuda.empty_cache()
+    _ = evaluate_model("model/rep_net_v2.pt", "plots/val_cr05_epoch100.png")
+
+    plt.clf()
     plt.plot(train_losses)
     plt.grid()
     plt.savefig("loss.png")
