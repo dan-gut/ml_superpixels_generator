@@ -13,6 +13,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 
 from model import RepresentationUNet
+from evaluate import evaluate_model
 
 random.seed(42)
 
@@ -112,7 +113,7 @@ def dataset_loader(test_set=False, patches_no=2):
         yield image, patches_coords
 
 
-def train(epoch_number):
+def train(epochs_number):
     writer = SummaryWriter(os.path.join("runs", f"cr={contrastive_rate}"))
 
     model = RepresentationUNet(unet_out_dimensions=unet_output_classes, patch_size=patch_size, representation_len=2048)
@@ -124,86 +125,104 @@ def train(epoch_number):
         checkpoint = torch.load(model_path, map_location=torch.device(device))
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        loaded_epoch_no = checkpoint['epoch'] + 1
+        loaded_epoch_no = checkpoint['epoch']
         losses = checkpoint['losses']
     else:
-        loaded_epoch_no = 0
+        loaded_epoch_no = -1
         losses = []
 
     loss_fun = RepresentationLoss(contrastive_rate=contrastive_rate)
     train_loader = dataset_loader(test_set=False, patches_no=2)
 
-    for epoch in range(loaded_epoch_no, loaded_epoch_no + epoch_number):
-        torch.cuda.empty_cache()
-        print(f"Epoch {epoch}")
-        epoch_losses = []
-        epoch_sim_losses = []
-        epoch_con_losses = []
-        for _ in range(images_per_epoch):
-            image, patches_coords = next(train_loader)
+    try:
+        for epoch in range(loaded_epoch_no + 1, loaded_epoch_no + 1 + epochs_number):
+            torch.cuda.empty_cache()
+            print(f"Epoch {epoch}")
+            epoch_losses = []
+            epoch_sim_losses = []
+            epoch_con_losses = []
+            for _ in range(images_per_epoch):
+                image, patches_coords = next(train_loader)
 
-            target_0 = RepresentationLoss.get_dino_rep(image, patches_coords[0])
-            target_1 = RepresentationLoss.get_dino_rep(image, patches_coords[1])
+                target_0 = RepresentationLoss.get_dino_rep(image, patches_coords[0])
+                target_1 = RepresentationLoss.get_dino_rep(image, patches_coords[1])
 
-            image = image.to(device)
-            target_0 = target_0.to(device)
-            target_1 = target_1.to(device)
+                image = image.to(device)
+                target_0 = target_0.to(device)
+                target_1 = target_1.to(device)
 
-            optimizer.zero_grad()
-            model.set_patch_coordinates(patches_coords[0])
-            output_0 = model(image.unsqueeze(0))
+                optimizer.zero_grad()
+                model.set_patch_coordinates(patches_coords[0])
+                output_0 = model(image.unsqueeze(0))
 
-            model.set_patch_coordinates(patches_coords[1])
-            output_1 = model(image.unsqueeze(0))
+                model.set_patch_coordinates(patches_coords[1])
+                output_1 = model(image.unsqueeze(0))
 
-            loss = loss_fun([output_0, output_1], [target_0, target_1])
+                loss = loss_fun([output_0, output_1], [target_0, target_1])
 
-            sim_loss = loss["Similarity"]
-            con_loss = loss["Contrastiveness"]
-            tot_loss = loss["Total Loss"]
+                sim_loss = loss["Similarity"]
+                con_loss = loss["Contrastiveness"]
+                tot_loss = loss["Total Loss"]
 
-            tot_loss.backward()
-            optimizer.step()
-            epoch_losses.append(tot_loss.item())
-            epoch_sim_losses.append(sim_loss.item())
-            epoch_con_losses.append(con_loss.item())
+                tot_loss.backward()
+                optimizer.step()
+                epoch_losses.append(tot_loss.item())
+                epoch_sim_losses.append(sim_loss.item())
+                epoch_con_losses.append(con_loss.item())
 
-        mean_loss = np.mean(epoch_losses)
-        losses.append(mean_loss)
-        mean_sim_loss = np.mean(epoch_sim_losses)
-        mean_con_loss = np.mean(epoch_con_losses)
-        print(f"Loss = {mean_loss} ({mean_sim_loss}+{mean_con_loss})")
+            mean_loss = np.mean(epoch_losses)
+            losses.append(mean_loss)
+            mean_sim_loss = np.mean(epoch_sim_losses)
+            mean_con_loss = np.mean(epoch_con_losses)
+            print(f"Loss = {mean_loss} ({mean_sim_loss}+{mean_con_loss})")
 
-        writer.add_scalars("Loss",
-                           {"Similarity": mean_sim_loss,
-                            "Contrastiveness": mean_con_loss,
-                            "Total": mean_loss},
-                           global_step=epoch)
-        if (epoch + 1) % checkpoint_interval == 0:
-            print("Saving model checkpoint")
-            torch.save({'epoch': epoch,
-                        'losses': losses,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict()
-                        }, model_path)
+            writer.add_scalars("Loss",
+                               {"Similarity": mean_sim_loss,
+                                "Contrastiveness": mean_con_loss,
+                                "Total": mean_loss},
+                               global_step=epoch)
+            if (epoch + 1) % checkpoint_interval == 0:
+                print("Saving model checkpoint")
+                torch.save({'epoch': epoch,
+                            'losses': losses,
+                            'model_state_dict': model.state_dict(),
+                            'optimizer_state_dict': optimizer.state_dict()
+                            }, model_path)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        print("Saving model")
+        torch.save({'epoch': epoch,
+                    'losses': losses,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict()
+                    }, model_path)
 
-    print("Saving model")
-    torch.save({'epoch': epoch,
-                'losses': losses,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict()
-                }, model_path)
-
-    writer.close()
+        writer.close()
 
     return losses
 
 
 if __name__ == "__main__":
     torch.cuda.empty_cache()
+    train_losses = train(10)
 
-    train_losses = train(50)
+    torch.cuda.empty_cache()
+    _ = evaluate_model("model/rep_net_v2.pt", "plots/eval_cr05_epoch10.png")
 
+    torch.cuda.empty_cache()
+    train_losses.extend(train(40))
+
+    torch.cuda.empty_cache()
+    _ = evaluate_model("model/rep_net_v2.pt", "plots/eval_cr05_epoch50.png")
+
+    torch.cuda.empty_cache()
+    train_losses.extend(train(50))
+
+    torch.cuda.empty_cache()
+    _ = evaluate_model("model/rep_net_v2.pt", "plots/val_cr05_epoch100.png")
+
+    plt.clf()
     plt.plot(train_losses)
     plt.grid()
     plt.savefig("loss.png")

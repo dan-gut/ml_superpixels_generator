@@ -12,23 +12,14 @@ from torchvision import transforms
 from model import RepresentationUNet
 
 
-random.seed(42)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+data_base_dir = os.path.join("Data", "images")
 
 dino_resnet50 = torch.hub.load('facebookresearch/dino:main', 'dino_resnet50')
 
-model_folder = Path("model")
-model_folder.mkdir(exist_ok=True)
-model_path = "model/rep_net_v2.pt"
-data_base_dir = os.path.join("Data", "images")
-
-# Model params
 patch_size = (40, 40)
 unet_output_classes = 1024
-
-img_transform = transforms.Compose([
-    transforms.PILToTensor(),
-    transforms.ConvertImageDtype(torch.float)])
 
 TEST_CASES_NO = 50
 
@@ -36,6 +27,10 @@ TEST_CASES_NO = 50
 def patches_generator(patches_no=2):
     files_list = list(os.listdir(data_base_dir))
     files_list = sorted(files_list)
+
+    img_transform = transforms.Compose([
+        transforms.PILToTensor(),
+        transforms.ConvertImageDtype(torch.float)])
 
     while True:
         chosen_file = random.choice(files_list)
@@ -79,8 +74,8 @@ def get_dino_rep(patch):
 
     return rep.detach().cpu()
 
-
-if __name__ == "__main__":
+def evaluate_model(model_path, plot_path=None):
+    print("Evalutating...")
     patch_gen = patches_generator(patches_no=2)
 
     model = RepresentationUNet(unet_out_dimensions=unet_output_classes, patch_size=patch_size, representation_len=2048)
@@ -115,12 +110,23 @@ if __name__ == "__main__":
         model2model.append(torch.linalg.norm(model_rep_1 - model_rep_2))
         dino2dino.append(torch.linalg.norm(dino_rep_1 - dino_rep_2))
 
-print(f"Model to model mean: {np.mean(model2model)}\n"
-      f"Model to dino mean: {np.mean(model2dino)}\n"
-      f"Dino to dino mean: {np.mean(dino2dino)}")
+    if plot_path is not None:
+        plt.clf()
+        plt.plot(model2model, 'o', label="mod2mod")
+        plt.plot(model2dino, 'o', label="mod2dino")
+        plt.plot(dino2dino, 'o', label="dino2dino")
+        plt.legend()
+        plt.grid()
+        plt.savefig(plot_path)
 
-plt.plot(model2model, 'o', label="mod2mod")
-plt.plot(model2dino, 'o', label="mod2dino")
-plt.plot(dino2dino, 'o', label="dino2dino")
-plt.legend()
-plt.show()
+    return model2model, model2dino, dino2dino
+
+
+if __name__ == "__main__":
+    random.seed(42)
+
+    model2model, model2dino, dino2dino = evaluate_model("model/rep_net_v2.pt","model_v2_evaluation.png")
+
+    print(f"Model to model mean: {np.mean(model2model)}\n"
+          f"Model to dino mean: {np.mean(model2dino)}\n"
+          f"Dino to dino mean: {np.mean(dino2dino)}")
