@@ -19,7 +19,7 @@ dino_resnet50 = torch.hub.load('facebookresearch/dino:main', 'dino_resnet50')
 
 model_folder = Path("model")
 model_folder.mkdir(exist_ok=True)
-model_path = "model/rep_net.pt"
+model_path = "model/rep_net_v2.pt"
 data_base_dir = os.path.join("Data", "images")
 
 # Model params
