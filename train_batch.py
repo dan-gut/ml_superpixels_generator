@@ -21,7 +21,7 @@ dino_resnet50 = torch.hub.load('facebookresearch/dino:main', 'dino_resnet50')
 
 model_folder = Path("model")
 model_folder.mkdir(exist_ok=True)
-model_path = "model/rep_net_v2.pt"
+model_path = "model/rep_net_batch.pt"
 data_base_dir = os.path.join("Data", "images_resized")
 
 test_img_ratio = 0.2
@@ -37,7 +37,7 @@ momentum = 0.9
 checkpoint_interval = 10
 contrastive_rate = 0.5
 batches_per_epoch = 5
-batch_size = 4
+batch_size = 10
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
