@@ -95,14 +95,19 @@ class RepresentationUNet(nn.Module):
         self.unet = UNet(unet_out_dimensions)
         self.softmax = nn.Softmax()
         self.sigmoid = nn.Sigmoid()
-        self.av_pool = nn.AvgPool2d(2, stride=2)
-        self.flat = nn.Flatten()
-        x_size, y_size = patch_size
-        fc_input_size = int(x_size // 2 * y_size // 2)
-        self.fc1 = nn.Linear(fc_input_size, representation_len // 4)
+
+        self.fc1 = nn.Linear(unet_out_dimensions, representation_len // 2)
         self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(representation_len // 4, representation_len // 2)
-        self.fc3 = nn.Linear(representation_len // 2, representation_len)
+        self.fc2 = nn.Linear(representation_len // 2, representation_len)
+
+        # self.av_pool = nn.AvgPool2d(2, stride=2)
+        # self.flat = nn.Flatten()
+        # x_size, y_size = patch_size
+        # fc_input_size = int(x_size // 2 * y_size // 2)
+        # self.fc1 = nn.Linear(fc_input_size, representation_len // 4)
+        # self.relu = nn.ReLU()
+        # self.fc2 = nn.Linear(representation_len // 4, representation_len // 2)
+        # self.fc3 = nn.Linear(representation_len // 2, representation_len)
 
         self.patch_size = patch_size
 
@@ -111,18 +116,26 @@ class RepresentationUNet(nn.Module):
         cropping_grid = cropping_grid.to(x.device)
 
         x1 = self.unet(x)
+
         # x2 = self.softmax(x1)
         x2 = self.sigmoid(x1)
 
         x3 = F.grid_sample(x2, cropping_grid, align_corners=False)
-        x4 = self.av_pool(x3)
-        x5 = torch.sum(x4, dim=1, keepdim=True)
-        x6 = self.flat(x5)
-        x7 = self.fc1(x6)
-        x8 = self.relu(x7)
-        x9 = self.fc2(x8)
-        x10 = self.relu(x9)
-        output = self.fc3(x10)
+
+        x4 = x3.mean(-1).mean(-1)
+        x5 = self.fc1(x4)
+        x6 = self.relu(x5)
+        output = self.fc2(x6)
+
+        # x4 = self.av_pool(x3)
+        # x5 = torch.sum(x4, dim=1, keepdim=True)
+        # x6 = self.flat(x5)
+        # x7 = self.fc1(x6)
+        # x8 = self.relu(x7)
+        # x9 = self.fc2(x8)
+        # x10 = self.relu(x9)
+        # output = self.fc3(x10)
+
         return output
 
 
