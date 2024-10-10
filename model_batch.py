@@ -90,11 +90,10 @@ class UNet(nn.Module):
 
 
 class RepresentationUNet(nn.Module):
-    def __init__(self, unet_out_dimensions, patch_size, representation_len=2048):
+    def __init__(self, unet_out_dimensions, patch_size, representation_len=2048, sigmoid=False):
         super(RepresentationUNet, self).__init__()
         self.unet = UNet(unet_out_dimensions)
-        self.softmax = nn.Softmax()
-        self.sigmoid = nn.Sigmoid()
+        self.activation =  nn.Sigmoid() if sigmoid else nn.Softmax(dim=1)
 
         self.fc1 = nn.Linear(unet_out_dimensions, representation_len // 2)
         self.relu = nn.ReLU()
@@ -111,17 +110,13 @@ class RepresentationUNet(nn.Module):
 
         self.patch_size = patch_size
 
-    def forward(self, x, patches_coords):
-        cropping_grid = self._get_cropping_grid(patches_coords, img_shape=x.shape)
-        cropping_grid = cropping_grid.to(x.device)
+    def forward(self, x, patches_coords, patch_size):
+        #cropping_grid = self._get_cropping_grid(patches_coords, img_shape=x.shape)
+        #cropping_grid = cropping_grid.to(x.device)
 
         x1 = self.unet(x)
-
-        # x2 = self.softmax(x1)
-        x2 = self.sigmoid(x1)
-
-        x3 = F.grid_sample(x2, cropping_grid, align_corners=False)
-
+        x2 = self.activation(x1)
+        x3 = torch.stack([x2[:,: , x:x+patch_size[0], y:y+patch_size[1]] for x, y in patches_coords], dim=1)
         x4 = x3.mean(-1).mean(-1)
         x5 = self.fc1(x4)
         x6 = self.relu(x5)
