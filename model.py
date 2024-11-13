@@ -1,7 +1,8 @@
+import matplotlib.pyplot as plt
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torchsummary import summary
+from torchinfo import summary
 
 
 class DoubleConv(nn.Module):
@@ -29,10 +30,10 @@ class Up(nn.Module):
     def forward(self, x1, x2):
         x2 = self.up_scale(x2)
 
-        diffY = x1.size()[2] - x2.size()[2]
-        diffX = x1.size()[3] - x2.size()[3]
+        diff_y = x1.size()[2] - x2.size()[2]
+        diff_x = x1.size()[3] - x2.size()[3]
 
-        x2 = F.pad(x2, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2])
+        x2 = F.pad(x2, [diff_x // 2, diff_x - diff_x // 2, diff_y // 2, diff_y - diff_y // 2])
         x = torch.cat([x2, x1], dim=1)
         return x
 
@@ -89,53 +90,48 @@ class UNet(nn.Module):
 
 
 class RepresentationUNet(nn.Module):
-    def __init__(self, unet_out_dimensions, patch_size, representation_len=2048):
+    def __init__(self, unet_out_dimensions, patch_size, representation_len=2048, sigmoid=False):
         super(RepresentationUNet, self).__init__()
         self.unet = UNet(unet_out_dimensions)
-        self.softmax = nn.Softmax()
-        self.sigmoid = nn.Sigmoid()
-        self.av_pool = nn.AvgPool2d(2, stride=2)
-        self.flat = nn.Flatten()
-        x_size, y_size = patch_size
-        fc_input_size = int(x_size // 2 * y_size // 2)
-        self.fc1 = nn.Linear(fc_input_size, representation_len // 4)
+        self.activation = nn.Sigmoid() if sigmoid else nn.Softmax(dim=1)
+
+        self.fc1 = nn.Linear(unet_out_dimensions, representation_len // 2)
         self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(representation_len // 4, representation_len // 2)
-        self.fc3 = nn.Linear(representation_len // 2, representation_len)
+        self.fc2 = nn.Linear(representation_len // 2, representation_len)
 
-        self._patch_coords = None
+        self.patch_size = patch_size
 
-    def forward(self, x):
+    def forward(self, x, patches_coords):
         x1 = self.unet(x)
-        # x2 = self.softmax(x1)
-        x2 = self.sigmoid(x1)
-        x3 = self._crop_patch(x2)
-        x4 = self.av_pool(x3)
-        x5 = torch.sum(x4, dim=1, keepdim=True)
-        x6 = self.flat(x5)
-        x7 = self.fc1(x6)
-        x8 = self.relu(x7)
-        x9 = self.fc2(x8)
-        x10 = self.relu(x9)
-        output = self.fc3(x10)
+        x2 = self.activation(x1)
+        x3 = torch.stack([x2[:, :, i:i+self.patch_size[0], j:j+self.patch_size[1]] for i, j in patches_coords], dim=1)
+        x4 = x3.mean(-1).mean(-1)
+        x5 = self.fc1(x4)
+        x6 = self.relu(x5)
+        output = self.fc2(x6)
+
         return output
 
-    def set_patch_coordinates(self, patch_coordinates):
-        self._patch_coords = patch_coordinates
 
-    def _crop_patch(self, input_tensor):
-        if self._patch_coords is None:
-            raise RuntimeError("Patch coordinates has not been set!")
+    def _get_cropping_grid(self, patches_coords, img_shape):
+        grids = []
 
-        output_tensor = input_tensor[:, :, self._patch_coords[0][0]:self._patch_coords[0][1],
-                                     self._patch_coords[1][0]:self._patch_coords[1][1]]
+        xs_min = (patches_coords[:, 0] - img_shape[2]/2) / (img_shape[2]/2)
+        xs_max = (patches_coords[:, 1] - img_shape[2]/2) / (img_shape[2]/2)
+        ys_min = (patches_coords[:, 2] - img_shape[3]/2) / (img_shape[3]/2)
+        ys_max = (patches_coords[:, 3] - img_shape[3]/2) / (img_shape[3]/2)
 
-        self._patch_coords = None
+        for i in range(len(patches_coords)):
+            x_grid = torch.linspace(xs_min[i], xs_max[i], self.patch_size[0])
+            y_grid = torch.linspace(ys_min[i], ys_max[i], self.patch_size[1])
+            meshx, meshy = torch.meshgrid(x_grid, y_grid, indexing='ij')
+            grids.append(torch.stack((meshy, meshx), 2))
 
-        return output_tensor
+        return torch.stack(grids)
 
 
 if __name__ == "__main__":
-    rep = RepresentationUNet(100, (40, 40))
-    rep.set_patch_coordinates([[0, 40], [0, 40]])
-    summary(rep.cuda(), (1, 400, 400))
+    model = RepresentationUNet(unet_out_dimensions=1024, patch_size=(40, 40), representation_len=2048)
+    batch_size = 4
+    num_samples = 4
+    summary(model, input_size=(batch_size, 1, 400, 400), patches_coords=[(0, 0) for _ in range(num_samples)])

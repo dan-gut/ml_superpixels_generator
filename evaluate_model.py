@@ -1,5 +1,4 @@
 import os
-from pathlib import Path
 import random
 
 import matplotlib.pyplot as plt
@@ -14,7 +13,7 @@ from model import RepresentationUNet
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-data_base_dir = os.path.join("Data", "images")
+data_base_dir = os.path.join("Data", "images_resized")
 
 dino_resnet50 = torch.hub.load('facebookresearch/dino:main', 'dino_resnet50')
 
@@ -47,7 +46,7 @@ def patches_generator(patches_no=2):
             y_min = random.randint(0, image.shape[1] - patch_size[1])
             y_max = y_min + patch_size[1]
 
-            patches_coords.append(((x_min, x_max), (y_min, y_max)))
+            patches_coords.append((x_min, x_max, y_min, y_max))
 
         image = np.squeeze(image, axis=2)
         image = Image.fromarray(image.astype(np.uint8))
@@ -57,7 +56,7 @@ def patches_generator(patches_no=2):
 
         for i in range(patches_no):
             patch_coords = patches_coords[i]
-            patches.append(image[:, patch_coords[0][0]:patch_coords[0][1], patch_coords[1][0]:patch_coords[1][1]])
+            patches.append(image[:, patch_coords[0]:patch_coords[1], patch_coords[2]:patch_coords[3]])
 
         yield image, patches, patches_coords
 
@@ -98,12 +97,10 @@ def evaluate_model(model_path, plot_path=None):
 
         image = image.to(device)
 
-        model.set_patch_coordinates(patch_1_coords)
-        model_rep_1 = model(image.unsqueeze(0))
+        model_rep_1 = model(image.unsqueeze(0), torch.tensor(patch_1_coords).unsqueeze(0))
         model_rep_1 = model_rep_1.detach().cpu()
 
-        model.set_patch_coordinates(patch_2_coords)
-        model_rep_2 = model(image.unsqueeze(0))
+        model_rep_2 = model(image.unsqueeze(0), torch.tensor(patch_2_coords).unsqueeze(0))
         model_rep_2 = model_rep_2.detach().cpu()
 
         model2dino.append(torch.linalg.norm(model_rep_1 - dino_rep_1))
@@ -125,7 +122,7 @@ def evaluate_model(model_path, plot_path=None):
 if __name__ == "__main__":
     random.seed(42)
 
-    model2model, model2dino, dino2dino = evaluate_model("model/rep_net_v2.pt","model_v2_evaluation.png")
+    model2model, model2dino, dino2dino = evaluate_model("model/rep_net_batch.pt","model_batch_evaluation.png")
 
     print(f"Model to model mean: {np.mean(model2model)}\n"
           f"Model to dino mean: {np.mean(model2dino)}\n"
