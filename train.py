@@ -25,6 +25,7 @@ img_transform = transforms.Compose([transforms.PILToTensor(), transforms.Convert
 
 def args_parser():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--data_dir", type=int, default=50)
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=0.001)
@@ -157,7 +158,7 @@ def train(args):
     print(model_path)
 
     loss_fun = RepresentationLoss(contrastive_rate=args.contrastive_rate)
-    dataset = RepDataset("Data/images_resized")
+    dataset = RepDataset(args.data_dir)
     train_idx = torch.arange(0, int(0.8 * len(dataset)))
     test_idx = torch.arange(int(0.8 * len(dataset)), len(dataset))
     dataset_train, dataset_test = (
