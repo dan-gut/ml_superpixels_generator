@@ -25,7 +25,8 @@ img_transform = transforms.Compose([transforms.PILToTensor(), transforms.Convert
 
 def args_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=int, default=50)
+    parser.add_argument("--data_dir", type=str, default="./data")
+    parser.add_argument("--model_dir", type=str, default="./model")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=0.001)
@@ -107,7 +108,7 @@ class RepresentationLoss(nn.Module):
 
 
 class RepDataset(Dataset):
-    def __init__(self, data_dir, test_set=False, test_ratio=0.2):
+    def __init__(self, data_dir):
         self.data_dir = data_dir
         self.files_list = list(os.listdir(data_dir))
         self.files_list = sorted(self.files_list)
@@ -140,8 +141,7 @@ def train(args):
     rep_model = dino_resnet50.to(device)
     rep_model.eval()
 
-    model_folder = Path("model")
-    model_folder.mkdir(exist_ok=True)
+
     model_name = (
         f"bs{args.batch_size}_lr{args.lr}_c{args.classes}_cr{args.contrastive_rate}"
         f"_ps{'_'.join([str(p) for p in args.patch_size])}"
@@ -154,7 +154,10 @@ def train(args):
         assert False, args.patches_choice
     if args.sigmoid:
         model_name += "_sig"
-    model_path = f"model/{model_name}.pt"
+
+    model_dir = Path(args.model_dir)
+    model_dir.mkdir(parents=True, exist_ok=True)
+    model_path = model_dir.joinpath(model_name)
     print(model_path)
 
     loss_fun = RepresentationLoss(contrastive_rate=args.contrastive_rate)
