@@ -1,11 +1,23 @@
+import argparse
+import csv
+import os
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import nibabel as nib
 import numpy as np
 import PIL
 from skimage.measure import regionprops
 from skimage.segmentation import find_boundaries
+
+
+def args_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--sp_dir", type=str, required=True)
+    parser.add_argument("--images_dir", type=str, required=True)
+    parser.add_argument("--labels_dir", type=str, required=True)
+    parser.add_argument("--output_csv_path", type=str, required=True)
+    args = parser.parse_args()
+    return args
 
 
 def boundary_pixels(segmentation):
@@ -92,19 +104,32 @@ def calculate_metrics(superpixels, ground_truth, image):
     ev = explained_variation(superpixels, image)
     comp = compactness(superpixels)
 
-    print(f"Boundary Recall: {br}")
-    print(f"ASA: {asa}")
-    print(f"Undersegmentation Error: {ue}")
-    print(f"Explained Variation: {ev}")
-    print(f"Compactness: {comp}")
+    return br, asa, ue, ev, comp
+
+
+def evaluate_superpixels(args):
+    Path(args.output_csv_path).parent.mkdir(parents=True, exist_ok=True)
+
+    with open(args.output_csv_path, mode="w", newline="") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["File name", "Boundary Recall", "ASA",
+                         "Undersegmentation Error", "Explained Variation", "Compactness"])
+
+        for image_name in os.listdir(args.images_dir):
+            image_path = os.path.join(args.images_dir, image_name)
+            sp_path = os.path.join(args.sp_dir, f"{image_name.split(".")[0]}.png")
+            gt_path = os.path.join(args.labels_dir, f"label_{image_name.split("_")[1]}")
+
+            img = nib.load(image_path).get_fdata().squeeze()
+            sp_img = np.asarray(PIL.Image.open(sp_path))
+            gt_seg = nib.load(gt_path).get_fdata().astype(np.uint16).squeeze()
+
+            br, asa, ue, ev, comp = calculate_metrics(sp_img, gt_seg, img)
+
+            writer.writerow([image_name, br, asa, ue, ev, comp])
+
 
 if __name__ == "__main__":
-    image_path = Path("Data/images_resized/image_001.nii.gz")
-    sp_path = Path("Data/superpixels/bs8_lr0.001_c1024_cr0.5_ps40_40_sample_ns40/image_001.png")
-    gt_path = Path("Data/labels_resized/label_001.nii.gz")
-
-    img = nib.load(image_path).get_fdata().squeeze()
-    sp_img = np.asarray(PIL.Image.open(sp_path))
-    gt_seg = nib.load(gt_path).get_fdata().astype(np.uint16).squeeze()
-
-    calculate_metrics(sp_img, gt_seg, img)
+    args = args_parser()
+    evaluate_superpixels(args)
+    
