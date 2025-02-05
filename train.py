@@ -27,6 +27,7 @@ def args_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str, default="./data")
     parser.add_argument("--model_dir", type=str, default="./model")
+    parser.add_argument("--runs_dir", type=str, default="./runs")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=0.001)
@@ -172,7 +173,7 @@ def train(args):
     data_loader_train = DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True)
     data_loader_test = DataLoader(dataset_test, batch_size=args.batch_size, shuffle=False)
 
-    writer = SummaryWriter(os.path.join("runs", f"{model_name}"))
+    writer = SummaryWriter(args.runs_dir)
     representation_len = 2048
     model = RepresentationUNet(
         unet_out_dimensions=args.classes,
