@@ -158,7 +158,7 @@ def train(args):
 
     model_dir = Path(args.model_dir)
     model_dir.mkdir(parents=True, exist_ok=True)
-    model_path = model_dir.joinpath(model_name)
+    model_path = model_dir.joinpath(f"{model_name}.pt")
     print(model_path)
 
     loss_fun = RepresentationLoss(contrastive_rate=args.contrastive_rate)
