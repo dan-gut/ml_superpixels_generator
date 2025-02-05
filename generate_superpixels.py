@@ -1,4 +1,5 @@
 import argparse
+import os
 from pathlib import Path
 import random
 
@@ -6,7 +7,6 @@ import matplotlib.pyplot as plt
 import nibabel as nib
 import numpy as np
 from PIL import Image
-from PIL.ImageColor import colormap
 from scipy import ndimage as ndi
 from skimage.segmentation import mark_boundaries
 import torch
@@ -24,7 +24,10 @@ img_transform = transforms.Compose([transforms.PILToTensor(), transforms.Convert
 
 def args_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_path", type=str, required=True)
+    parser.add_argument("--data_dir", type=str, required=True)
+    parser.add_argument("--model_dir", type=str, required=True)
+    parser.add_argument("--output_dir", type=str, required=True)
+    parser.add_argument("--plot_dir", type=str)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--contrastive_rate", type=float, default=0.5)
@@ -57,8 +60,6 @@ def get_patches_coords(image_shape, patches_choice, patch_size, step_size, num_s
 
 
 def load_model(args):
-    model_folder = Path("model")
-    model_folder.mkdir(exist_ok=True)
     model_name = (
         f"bs{args.batch_size}_lr{args.lr}_c{args.classes}_cr{args.contrastive_rate}"
         f"_ps{'_'.join([str(p) for p in args.patch_size])}"
@@ -71,7 +72,10 @@ def load_model(args):
         assert False, args.patches_choice
     if args.sigmoid:
         model_name += "_sig"
-    model_path = f"model/{model_name}.pt"
+
+    model_dir = Path(args.model_dir)
+    model_dir.mkdir(parents=True, exist_ok=True)
+    model_path = model_dir.joinpath(f"{model_name}.pt")
     print(model_path)
 
     representation_len = 2048
@@ -86,7 +90,7 @@ def load_model(args):
     checkpoint = torch.load(model_path, map_location=torch.device(device))
     model.load_state_dict(checkpoint["model_state_dict"])
 
-    return model
+    return model, model_name
 
 
 def load_image(image_path):
@@ -111,7 +115,7 @@ def get_unique_sp(data):
     return result
 
 
-def plot_sp_img(image):
+def plot_sp_img(image, plot_path):
     cmap = plt.cm.tab20
     num_colors = cmap.N
     colors = cmap(np.arange(num_colors))
@@ -121,36 +125,44 @@ def plot_sp_img(image):
     image_rgb = (mapped_colors[:, :, :3] * 255).astype(np.uint8)
 
     plt.imshow(image_rgb)
-    plt.show()
+    plt.savefig(plot_path)
+
+
+def generate_superpixels(args):
+    model, model_name = load_model(args)
+    model.eval()
+
+    for img_name in os.listdir(args.data_dir):
+        img = load_image(os.path.join(args.data_dir, img_name))
+
+        patches_coords = get_patches_coords(img[0].shape, args.patches_choice, args.patch_size, args.step_size,
+                                            args.num_samples)
+        _, unet_output = model(img.unsqueeze(0), patches_coords)
+
+        act = nn.Sigmoid() if args.sigmoid else nn.Softmax(dim=1)
+
+        output_img = act(unet_output)
+        output_img = output_img.squeeze(0)
+        sp_img = torch.argmax(output_img, dim=0)
+
+        unique_sp_img = get_unique_sp(sp_img.numpy())
+
+        output_sp_path = Path(os.path.join(args.output_dir, model_name, f"{img_name.split('.')[0]}.png"))
+        output_sp_path.parent.mkdir(parents=True, exist_ok=True)
+        output_img = Image.fromarray(unique_sp_img.astype(np.uint16))
+        output_img.save(output_sp_path)
+
+        if args.plot_dir is not None:
+            output_sp_plot1_path = Path(os.path.join(args.plot_dir, model_name, f"{img_name.split('.')[0]}_1.png"))
+            output_sp_plot2_path = Path(os.path.join(args.plot_dir, model_name, f"{img_name.split('.')[0]}_2.png"))
+            output_sp_plot1_path.parent.mkdir(parents=True, exist_ok=True)
+
+            plt.imshow(mark_boundaries(img.squeeze(0).numpy(), sp_img.numpy(), color=(0, 1, 0)))
+            plt.savefig(output_sp_plot1_path)
+            plot_sp_img(unique_sp_img, output_sp_plot2_path)
 
 
 if __name__ == "__main__":
     torch.cuda.empty_cache()
-
     args = args_parser()
-
-    model = load_model(args)
-    model.eval()
-
-    img = load_image(args.input_path)
-
-    patches_coords = get_patches_coords(img[0].shape, args.patches_choice, args.patch_size, args.step_size, args.num_samples)
-    _, unet_output = model(img.unsqueeze(0), patches_coords)
-
-    act = nn.Sigmoid() if args.sigmoid else nn.Softmax(dim=1)
-
-    output_img = act(unet_output)
-    output_img = output_img.squeeze(0)
-    sp_img = torch.argmax(output_img, dim=0)
-
-    print(np.unique(sp_img))
-
-    counts, bins = np.histogram(sp_img, bins=args.classes)
-    plt.stairs(counts, bins)
-    plt.show()
-
-    plt.imshow(mark_boundaries(img.squeeze(0).numpy(), sp_img.numpy(), color=(0,1,0)))
-    plt.show()
-
-    unique_sp_img = get_unique_sp(sp_img.numpy())
-    plot_sp_img(unique_sp_img)
+    generate_superpixels(args)
