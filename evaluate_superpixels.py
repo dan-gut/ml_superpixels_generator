@@ -117,8 +117,8 @@ def evaluate_superpixels(args):
 
         for image_name in os.listdir(args.images_dir):
             image_path = os.path.join(args.images_dir, image_name)
-            sp_path = os.path.join(args.sp_dir, f"{image_name.split(".")[0]}.png")
-            gt_path = os.path.join(args.labels_dir, f"label_{image_name.split("_")[1]}")
+            sp_path = os.path.join(args.sp_dir, f"{image_name.split('.')[0]}.png")
+            gt_path = os.path.join(args.labels_dir, f"label_{image_name.split('_')[1]}")
 
             img = nib.load(image_path).get_fdata().squeeze()
             sp_img = np.asarray(PIL.Image.open(sp_path))
