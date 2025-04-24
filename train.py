@@ -97,7 +97,8 @@ class RepresentationLoss(nn.Module):
 
     @staticmethod
     def get_dino_rep(rep_model, input_images, patch_coords, patch_size):
-        input_images = input_images.repeat(1, 3, 1, 1)  # RGB channels are required
+        if input_images.shape[1] != 3:
+            input_images = input_images.repeat(1, 3, 1, 1)  # RGB channels are required
         patches = torch.stack(
             [input_images[:, :, x : x + patch_size[0], y : y + patch_size[1]] for x, y in patch_coords], dim=1
         )
@@ -107,28 +108,55 @@ class RepresentationLoss(nn.Module):
         rep = rep.reshape(input_images.shape[0], len(patch_coords), rep.shape[-1])
         return rep
 
+from medmnist import PneumoniaMNIST, PathMNIST, ChestMNIST, DermaMNIST, OCTMNIST, RetinaMNIST, BreastMNIST, BloodMNIST, TissueMNIST, OrganAMNIST, OrganCMNIST, OrganSMNIST
+
+MNIST_DATASETS = {
+    "pneumonia": PneumoniaMNIST,
+    "path": PathMNIST,
+    "chest": ChestMNIST,
+    "derma": DermaMNIST,
+    "oct": OCTMNIST,
+    "retina": RetinaMNIST,
+    "breast": BreastMNIST,
+    "blood": BloodMNIST,
+    "tissue": TissueMNIST,
+    "organa": OrganAMNIST,
+    "organc": OrganCMNIST,
+    "organs": OrganSMNIST
+}
 
 class RepDataset(Dataset):
     def __init__(self, data_dir):
-        self.data_dir = data_dir
-        self.files_list = list(os.listdir(data_dir))
-        self.files_list = sorted(self.files_list)
+        if data_dir.startswith("medmnist"):
+            dataset = data_dir.split("_")[1]
+            split = data_dir.split("_")[2]
+            self.images = []
+            print(f"dataset {dataset} split {split}")
+            train_dataset = MNIST_DATASETS[dataset](split=split, size=224, download=True, root=f"/net/tscratch/people/plgmpro/data/medmnist/", as_rgb=False)
+            for data, y in train_dataset:
+                image = img_transform(data)
+                self.images.append(image)
+        else:
 
-        self.images = []
-        for file in self.files_list:
-            file_path = os.path.join(self.data_dir, file)
-            if file.endswith(".nii.gz"):
-                image = nib.load(file_path).get_fdata()
-                image = np.squeeze(image, axis=2)
-                image = Image.fromarray(image.astype(np.uint8))
-                image = img_transform(image)
-                self.images.append(image)
-            elif file.endswith(".png"):
-                image = Image.open(file_path)
-                image = img_transform(image)
-                self.images.append(image)
-            else:
-                raise ValueError("File type not supported")
+            self.data_dir = data_dir
+            self.files_list = list(os.listdir(data_dir))
+            self.files_list = sorted(self.files_list)
+
+            self.images = []
+            for file in self.files_list:
+                file_path = os.path.join(self.data_dir, file)
+                if file.endswith(".nii.gz"):
+                    image = nib.load(file_path).get_fdata()
+                    image = np.squeeze(image, axis=2)
+                    image = Image.fromarray(image.astype(np.uint8))
+                    image = img_transform(image)
+                    self.images.append(image)
+                elif file.endswith(".png"):
+                    image = Image.open(file_path)
+                    image = img_transform(image)
+                    self.images.append(image)
+                else:
+                    raise ValueError("File type not supported")
 
     def __len__(self):
         return len(self.images)
@@ -163,6 +191,9 @@ def train(args):
     if args.sigmoid:
         model_name += "_sig"
 
+    if args.data_dir.startswith("medmnist"):
+        model_name = f"{args.data_dir}_{model_name}"
+
     model_dir = Path(args.model_dir)
     model_dir.mkdir(parents=True, exist_ok=True)
     model_path = model_dir.joinpath(f"{model_name}.pt")
@@ -183,6 +214,7 @@ def train(args):
     writer = SummaryWriter(args.runs_dir)
     representation_len = 2048
     model = RepresentationUNet(
+        in_ch=dataset_train[0].shape[0],
         unet_out_dimensions=args.classes,
         patch_size=args.patch_size,
         representation_len=representation_len,

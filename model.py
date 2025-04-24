@@ -62,9 +62,9 @@ class UpLayer(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self, out_dimensions=2):
+    def __init__(self, in_ch=1, out_dimensions=2):
         super(UNet, self).__init__()
-        self.conv1 = DoubleConv(1, 64)
+        self.conv1 = DoubleConv(in_ch, 64)
         self.down1 = DownLayer(64, 128)
         self.down2 = DownLayer(128, 256)
         self.down3 = DownLayer(256, 512)
@@ -90,9 +90,9 @@ class UNet(nn.Module):
 
 
 class RepresentationUNet(nn.Module):
-    def __init__(self, unet_out_dimensions, patch_size, representation_len=2048, sigmoid=False):
+    def __init__(self, in_ch, unet_out_dimensions, patch_size, representation_len=2048, sigmoid=False):
         super(RepresentationUNet, self).__init__()
-        self.unet = UNet(unet_out_dimensions)
+        self.unet = UNet(in_ch, unet_out_dimensions)
         self.activation = nn.Sigmoid() if sigmoid else nn.Softmax(dim=1)
 
         self.fc1 = nn.Linear(unet_out_dimensions, representation_len // 2)

@@ -14,7 +14,7 @@ from torch import nn, unique
 from torchvision import transforms
 
 from model_interlayer_output import RepresentationUNet
-
+from tqdm import tqdm
 
 random.seed(42)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -31,7 +31,7 @@ def args_parser():
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--contrastive_rate", type=float, default=0.5)
-    parser.add_argument("--classes", type=float, default=1024)
+    parser.add_argument("--classes", type=int, default=1024)
     parser.add_argument("--patch_size", type=int, nargs="+", default=[40, 40])
     parser.add_argument("--sigmoid", action="store_true", default=False)
     parser.add_argument("--patches_choice", type=str, default="sample", choices=["sample", "grid"])
@@ -59,27 +59,12 @@ def get_patches_coords(image_shape, patches_choice, patch_size, step_size, num_s
     return coords
 
 
-def load_model(args):
-    model_name = (
-        f"bs{args.batch_size}_lr{args.lr}_c{args.classes}_cr{args.contrastive_rate}"
-        f"_ps{'_'.join([str(p) for p in args.patch_size])}"
-    )
-    if args.patches_choice == "grid":
-        model_name += f"_grid_ss{'_'.join([str(s) for s in args.step_size])}"
-    elif args.patches_choice == "sample":
-        model_name += f"_sample_ns{args.num_samples}"
-    else:
-        assert False, args.patches_choice
-    if args.sigmoid:
-        model_name += "_sig"
-
-    model_dir = Path(args.model_dir)
-    model_dir.mkdir(parents=True, exist_ok=True)
-    model_path = model_dir.joinpath(f"{model_name}.pt")
-    print(model_path)
-
+def load_model(args, in_ch):
+    model_name = args.model_dir.replace("model/", "").replace(".pt","")
+    model_path = args.model_dir
     representation_len = 2048
     model = RepresentationUNet(
+        in_ch=in_ch,
         unet_out_dimensions=args.classes,
         patch_size=args.patch_size,
         representation_len=representation_len,
@@ -87,7 +72,7 @@ def load_model(args):
     )
 
     print("Loading model")
-    checkpoint = torch.load(model_path, map_location=torch.device(device))
+    checkpoint = torch.load(f"{model_path}", map_location=torch.device(device))
     model.load_state_dict(checkpoint["model_state_dict"])
 
     return model, model_name
@@ -133,14 +118,28 @@ def plot_sp_img(image, plot_path):
     plt.imshow(image_rgb)
     plt.savefig(plot_path)
 
-
+from train import MNIST_DATASETS
 def generate_superpixels(args):
-    model, model_name = load_model(args)
+    if args.data_dir.startswith("medmnist"):
+        dataset = args.data_dir.split("_")[1]
+        split = args.data_dir.split("_")[2]
+        assert split == "test"
+        images = []
+        print(f"dataset {dataset} split {split}")
+        train_dataset = MNIST_DATASETS[dataset](split=split, size=224, download=True,
+                                                root=f"/net/tscratch/people/plgmpro/data/medmnist/", as_rgb=False)
+        for data, y in train_dataset:
+            image = img_transform(data)
+            images.append(image)
+            if len(images) == 100:
+                break
+    else:
+        images = [load_image(os.path.join(args.data_dir, img_name)) for img_name in os.listdir(args.data_dir)]
+
+    model, model_name = load_model(args, images[0].shape[0])
     model.eval()
-
-    for img_name in os.listdir(args.data_dir):
-        img = load_image(os.path.join(args.data_dir, img_name))
-
+    for i, img in tqdm(enumerate(images), total=len(images)):
+        img_name  = f"{i:03}.png"
         patches_coords = get_patches_coords(img[0].shape, args.patches_choice, args.patch_size, args.step_size,
                                             args.num_samples)
         _, unet_output = model(img.unsqueeze(0), patches_coords)
@@ -153,10 +152,25 @@ def generate_superpixels(args):
 
         unique_sp_img = get_unique_sp(sp_img.numpy())
 
-        output_sp_path = Path(os.path.join(args.output_dir, model_name, f"{img_name.split('.')[0]}.png"))
-        output_sp_path.parent.mkdir(parents=True, exist_ok=True)
+
+
+        output_path = Path(os.path.join(args.output_dir, model_name))
+        img_path = Path(os.path.join(output_path, img_name))
+        img_path.parent.mkdir(parents=True, exist_ok=True)
+        if img.shape[0] == 1:
+            plt.imsave(img_path, img[0].numpy(), cmap="gray")
+        else:
+            plt.imsave(img_path, img.permute(1,2,0).numpy())
+        
+        img_path = Path(os.path.join(output_path, img_name.replace(".png", "_sp.png")))
+        output_img = Image.fromarray(sp_img.numpy().astype(np.uint16))
+        output_img.save(img_path)
+        
+        img_path = Path(os.path.join(output_path, img_name.replace(".png", "_sp_uq.png")))
         output_img = Image.fromarray(unique_sp_img.astype(np.uint16))
-        output_img.save(output_sp_path)
+        output_img.save(img_path)
+        if img.shape[0] == 3:
+            img = img.mean(0).unsqueeze(0)
 
         if args.plot_dir is not None:
             output_sp_plot1_path = Path(os.path.join(args.plot_dir, model_name, f"{img_name.split('.')[0]}_1.png"))
