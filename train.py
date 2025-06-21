@@ -117,11 +117,18 @@ class RepDataset(Dataset):
         self.images = []
         for file in self.files_list:
             file_path = os.path.join(self.data_dir, file)
-            image = nib.load(file_path).get_fdata()
-            image = np.squeeze(image, axis=2)
-            image = Image.fromarray(image.astype(np.uint8))
-            image = img_transform(image)
-            self.images.append(image)
+            if file.endswith(".nii.gz"):
+                image = nib.load(file_path).get_fdata()
+                image = np.squeeze(image, axis=2)
+                image = Image.fromarray(image.astype(np.uint8))
+                image = img_transform(image)
+                self.images.append(image)
+            elif file.endswith(".png"):
+                image = Image.open(file_path)
+                image = img_transform(image)
+                self.images.append(image)
+            else:
+                raise ValueError("File type not supported")
 
     def __len__(self):
         return len(self.images)

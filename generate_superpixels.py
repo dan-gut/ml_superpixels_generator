@@ -94,10 +94,16 @@ def load_model(args):
 
 
 def load_image(image_path):
-    image = nib.load(image_path).get_fdata()
-    image = np.squeeze(image, axis=2)
-    image = Image.fromarray(image.astype(np.uint8))
-    image = img_transform(image)
+    if image_path.endswith(".nii.gz"):
+        image = nib.load(image_path).get_fdata()
+        image = np.squeeze(image, axis=2)
+        image = Image.fromarray(image.astype(np.uint8))
+        image = img_transform(image)
+    elif image_path.endswith(".png"):
+        image = Image.open(image_path)
+        image = img_transform(image)
+    else:
+        raise ValueError("Unsupported image type")
 
     return image
 
