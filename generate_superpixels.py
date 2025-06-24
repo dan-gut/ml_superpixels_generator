@@ -19,8 +19,7 @@ from tqdm import tqdm
 random.seed(42)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-img_transform = transforms.Compose([transforms.PILToTensor(), transforms.ConvertImageDtype(torch.float)])
-
+from train import img_transform
 
 def args_parser():
     parser = argparse.ArgumentParser()
@@ -119,27 +118,64 @@ def plot_sp_img(image, plot_path):
     plt.savefig(plot_path)
 
 from train import MNIST_DATASETS
+from torchvision import models
+from torchvision.utils import save_image
 def generate_superpixels(args):
     if args.data_dir.startswith("medmnist"):
         dataset = args.data_dir.split("_")[1]
         split = args.data_dir.split("_")[2]
         assert split == "test"
-        images = []
         print(f"dataset {dataset} split {split}")
-        train_dataset = MNIST_DATASETS[dataset](split=split, size=224, download=True,
+        train_dataset = MNIST_DATASETS[dataset](split=split, size=224, download=True, transform=img_transform,
                                                 root=f"/net/tscratch/people/plgmpro/data/medmnist/", as_rgb=False)
-        for data, y in train_dataset:
-            image = img_transform(data)
-            images.append(image)
-            if len(images) == 100:
-                break
+        rgb_train_dataset = MNIST_DATASETS[dataset](split=split, size=224, download=True, transform=img_transform,
+                                                root=f"/net/tscratch/people/plgmpro/data/medmnist/", as_rgb=True)
+        # load resnet
+        resnet = models.resnet18(weights="IMAGENET1K_V1")
+        resnet_path = f"resnets/resnet18_{dataset}_mnist.pt"
+        if train_dataset[0][1].shape[-1] != 1:
+            num_classes = train_dataset[0][1].shape[-1]
+        else:
+            num_classes = max([y.max() + 1 for _, y in train_dataset])
+        resnet.fc = nn.Linear(resnet.fc.in_features, num_classes)
+        resnet.load_state_dict(torch.load(resnet_path, map_location="cpu")["model"])
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        resnet.to(device)
+        resnet.eval()
+        print("Resnet loaded")
+        all_imgs = {}
+        for i, ((image, y), (rgb_image, rgb_y)) in enumerate(zip(train_dataset, rgb_train_dataset)):
+            assert np.all(y == rgb_y), i
+            if len(y) != 1:
+                y = 0
+            else:
+                y = y[0]
+            with torch.no_grad():
+                pred_y = resnet(rgb_image.unsqueeze(0).to(device))
+            logit = pred_y
+            pred_y = torch.argmax(pred_y, 1).detach().cpu().item()
+            if y in all_imgs:
+                all_imgs[y].append((i, y, pred_y, image))
+            else:
+                all_imgs[y] = [(i, y, pred_y, image)]
+            #if i == 123:
+            #    print(y, pred_y, logit)
+            #    assert False
+        images = []
+        for y in all_imgs:
+            images.extend(all_imgs[y][:50])
+        indexes, labels, preds, images = zip(*images)
+
     else:
         images = [load_image(os.path.join(args.data_dir, img_name)) for img_name in os.listdir(args.data_dir)]
+        indexes = range(len(images))
+        preds = range(len(images))
+        labels = range(len(images))
 
     model, model_name = load_model(args, images[0].shape[0])
     model.eval()
-    for i, img in tqdm(enumerate(images), total=len(images)):
-        img_name  = f"{i:03}.png"
+    for i, label, pred, img in tqdm(zip(indexes, labels, preds, images), total=len(images)):
+        img_name  = f"test_idx{i:03}_label{label}_pred{pred}.png"
         patches_coords = get_patches_coords(img[0].shape, args.patches_choice, args.patch_size, args.step_size,
                                             args.num_samples)
         _, unet_output = model(img.unsqueeze(0), patches_coords)
@@ -158,10 +194,12 @@ def generate_superpixels(args):
         img_path = Path(os.path.join(output_path, img_name))
         img_path.parent.mkdir(parents=True, exist_ok=True)
         if img.shape[0] == 1:
-            plt.imsave(img_path, img[0].numpy(), cmap="gray")
+            save_image(img, img_path)
+            #plt.imsave(img_path, img[0].numpy(), cmap="gray", vmin=0, vmax=1)
         else:
-            plt.imsave(img_path, img.permute(1,2,0).numpy())
-        
+            save_image(img, img_path)
+            #plt.imsave(img_path, img.permute(1,2,0).numpy(), vmin=0, vmax=1)
+
         img_path = Path(os.path.join(output_path, img_name.replace(".png", "_sp.png")))
         output_img = Image.fromarray(sp_img.numpy().astype(np.uint16))
         output_img.save(img_path)

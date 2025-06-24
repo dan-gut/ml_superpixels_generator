@@ -20,8 +20,8 @@ from model import RepresentationUNet
 random.seed(42)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-img_transform = transforms.Compose([transforms.PILToTensor(), transforms.ConvertImageDtype(torch.float)])
-
+#img_transform = transforms.Compose([transforms.PILToTensor(), transforms.ConvertImageDtype(torch.float)])
+img_transform = transforms.Compose([ transforms.ToTensor(), transforms.Normalize(mean=[.5], std=[.5])])
 
 def args_parser():
     parser = argparse.ArgumentParser()
@@ -196,7 +196,7 @@ def train(args):
 
     model_dir = Path(args.model_dir)
     model_dir.mkdir(parents=True, exist_ok=True)
-    model_path = model_dir.joinpath(f"{model_name}.pt")
+    model_path = model_dir.joinpath(f"{model_name}_20250623_img_transform.pt")
     print(model_path)
 
     loss_fun = RepresentationLoss(contrastive_rate=args.contrastive_rate)

@@ -23,7 +23,7 @@ from sklearn.metrics import roc_auc_score
 from train import img_transform, MNIST_DATASETS
 import torch.nn.functional as F
 
-from medmnist.evaluator import getAUC
+from medmnist.evaluator import getAUC, getACC
 
 random.seed(42)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -67,7 +67,8 @@ def eval(model, loader, task):
     y_true = torch.cat(ys).numpy()
     y_pred_prob = torch.cat(preds).numpy()
     auc = getAUC(y_true, y_pred_prob, task=task)
-    return correct / total, auc
+    acc = getACC(y_true, y_pred_prob, task=task)
+    return acc, auc
 
 
 def train(model, loader, optimizer, scheduler, criterion):
@@ -78,6 +79,7 @@ def train(model, loader, optimizer, scheduler, criterion):
 
     for inputs, labels in loader:
         inputs, labels = inputs.to(device), labels.to(device)
+        assert inputs.shape[1] == 3
         optimizer.zero_grad()
         outputs = model(inputs)
         if labels.shape[-1] == 1:
@@ -154,6 +156,9 @@ def main(args):
 
     model = models.resnet18(weights="IMAGENET1K_V1")
     model.fc = nn.Linear(model.fc.in_features, num_classes)
+    #model.load_state_dict(torch.load(args.save_path, map_location="cpu")["model"])
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
 
     criterion = nn.CrossEntropyLoss()
 
@@ -183,6 +188,7 @@ def main(args):
             f"Epoch {epoch} Loss {loss:.4f} Train acc {train_acc:.2f} Val acc {val_acc:.2f} auc {val_roc_auc:.2f} Test {test_acc:.2f} auc {test_roc_auc:.2f}"
         )
 
+    save_model = model
     train_acc, train_roc_auc = eval(save_model, train_loader, task)
     val_acc, val_roc_auc = eval(save_model, val_loader, task)
     test_acc, test_roc_auc = eval(save_model, test_loader, task)
