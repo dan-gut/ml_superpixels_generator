@@ -50,20 +50,16 @@ def eval(model, loader, task):
             inputs, labels = inputs.to(device), labels.to(device)
 
             outputs = model(inputs)
-
-            predicted = torch.argmax(outputs, 1)
-            if (len(labels.shape) == 2) and (labels.shape[-1] != 1):
-                l = labels.argmax(-1)
-            elif (len(labels.shape) == 2) and (labels.shape[-1] == 1):
+            outputs = F.softmax(outputs, dim=1) if task != "multi-label, binary-class" else F.sigmoid(outputs)
+            predicted = torch.argmax(outputs, 1)  if task != "multi-label, binary-class" else (outputs > 0.5).float()
+            if (len(labels.shape) == 2) and (labels.shape[-1] == 1):
                 l = labels.squeeze(-1)
             else:
                 l = labels
             total += l.size(-1)
             correct += (predicted == l).sum().item()
-
             ys.append(labels.detach().cpu())
-            logit = F.softmax(outputs, dim=1)
-            preds.append(logit.detach().cpu())
+            preds.append(outputs.detach().cpu())
     y_true = torch.cat(ys).numpy()
     y_pred_prob = torch.cat(preds).numpy()
     auc = getAUC(y_true, y_pred_prob, task=task)
@@ -71,7 +67,7 @@ def eval(model, loader, task):
     return acc, auc
 
 
-def train(model, loader, optimizer, scheduler, criterion):
+def train(model, loader, optimizer, scheduler, criterion, task):
     model.train()
     running_loss = 0.0
     correct = 0
@@ -82,17 +78,23 @@ def train(model, loader, optimizer, scheduler, criterion):
         assert inputs.shape[1] == 3
         optimizer.zero_grad()
         outputs = model(inputs)
+
         if labels.shape[-1] == 1:
             loss = criterion(outputs, labels.squeeze(-1))
+            predicted = torch.argmax(outputs, 1)
         else:
-            labels = labels.argmax(-1)
+            if task == "multi-label, binary-class":
+                labels = labels.float()
+                predicted = (F.sigmoid(outputs) > 0.5).float()
+            else:
+                labels = labels.argmax(-1)
+                predicted = torch.argmax(outputs, 1)
             loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
 
         running_loss += loss.item()
 
-        _, predicted = torch.max(outputs, 1)
         total += labels.size(0)
         correct += (predicted == labels).sum().item()
 
@@ -160,7 +162,7 @@ def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss() if args.dataset != "chest" else  nn.BCEWithLogitsLoss()
 
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
@@ -175,7 +177,7 @@ def main(args):
     max_acc = 0
     save_model = None
     for epoch in range(1, epochs+1):
-        loss, train_acc = train(model, train_loader, optimizer, scheduler, criterion)
+        loss, train_acc = train(model, train_loader, optimizer, scheduler, criterion, task)
         val_acc, val_roc_auc = eval(model, val_loader, task)
         test_acc, test_roc_auc = eval(model, test_loader, task)
         val_accs.append(val_acc)

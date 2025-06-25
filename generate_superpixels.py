@@ -20,6 +20,7 @@ random.seed(42)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 from train import img_transform
+import torch.nn.functional as F
 
 def args_parser():
     parser = argparse.ArgumentParser()
@@ -147,20 +148,21 @@ def generate_superpixels(args):
         for i, ((image, y), (rgb_image, rgb_y)) in enumerate(zip(train_dataset, rgb_train_dataset)):
             assert np.all(y == rgb_y), i
             if len(y) != 1:
+                y_label = "".join([str(yi) for yi in y.tolist()])
                 y = 0
             else:
                 y = y[0]
+                y_label = y
             with torch.no_grad():
                 pred_y = resnet(rgb_image.unsqueeze(0).to(device))
-            logit = pred_y
-            pred_y = torch.argmax(pred_y, 1).detach().cpu().item()
-            if y in all_imgs:
-                all_imgs[y].append((i, y, pred_y, image))
+            if pred_y.shape[-1] == 14:
+                pred_y = "".join([str(yi) for yi in (F.sigmoid(pred_y) > 0.5).squeeze(0).long().tolist()])
             else:
-                all_imgs[y] = [(i, y, pred_y, image)]
-            #if i == 123:
-            #    print(y, pred_y, logit)
-            #    assert False
+                pred_y = torch.argmax(pred_y, 1).detach().cpu().item()
+            if y in all_imgs:
+                all_imgs[y].append((i, y_label, pred_y, image))
+            else:
+                all_imgs[y] = [(i, y_label, pred_y, image)]
         images = []
         for y in all_imgs:
             images.extend(all_imgs[y][:50])
